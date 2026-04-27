@@ -62,7 +62,7 @@ Open `.env.local` and fill in your values:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
 ### Step 5 — Create Users
