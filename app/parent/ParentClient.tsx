@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, Plus, LogOut } from 'lucide-react';
 import { IS_MOCK, getSupabaseClient, getProfile, getChildren, getSessions, getRewards, approveReward, createReward } from '@/lib/supabase';
 import { MOCK_PARENT_PROFILE, MOCK_PROFILE, MOCK_SESSIONS, MOCK_REWARDS } from '@/lib/mock-data';
-import { calculateStreak, getPracticedMinutesToday, getPracticedMinutesThisMonth, getWeekPracticeStatus } from '@/lib/streak';
+import { calculateStreak, getPracticedMinutesToday, getPracticedMinutesThisMonth } from '@/lib/streak';
+import WeeklyHistory from '@/components/WeeklyHistory';
 import type { Profile, PracticeSession, Reward } from '@/lib/types';
 
 const EMOJI_OPTS = ['🎬','🎮','🍦','🍕','🌙','🎁','🏖️','🍫','📚','🎪'];
@@ -26,6 +27,7 @@ export default function ParentClient() {
   const [cost,     setCost]     = useState(50);
   const [emoji,    setEmoji]    = useState('🎁');
   const [saving,   setSaving]   = useState(false);
+  const [weekOffset, setWeekOffset] = useState(0);
 
   const loadData = useCallback(async () => {
     if (isMock) {
@@ -84,7 +86,6 @@ export default function ParentClient() {
   const streak    = calculateStreak(sessions, tz);
   const todayMins = getPracticedMinutesToday(sessions, tz);
   const monthMins = getPracticedMinutesThisMonth(sessions, tz);
-  const week      = getWeekPracticeStatus(sessions, tz);
   const pending   = rewards.filter(r => r.redeemed_at && !r.approved_at);
 
   return (
@@ -117,19 +118,14 @@ export default function ParentClient() {
           ))}
         </div>
 
-        {/* Week */}
-        <div className="bg-white rounded-3xl p-4 border border-violet-100">
-          <h3 className="text-sm font-black text-indigo-900 mb-3" style={{ fontFamily: 'Nunito, sans-serif' }}>This Week</h3>
-          <div className="flex gap-2 justify-between">
-            {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, i) => (
-              <div key={d} className="flex flex-col items-center gap-1">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-black ${week[i] ? 'bg-green-100 text-green-700 border-2 border-green-400' : 'bg-violet-50 text-indigo-300 border border-violet-100'}`}
-                  style={{ fontFamily: 'Nunito, sans-serif' }}>{week[i] ? '✓' : d[0]}</div>
-                <span className="text-xs text-indigo-300 font-semibold">{d.slice(0,2)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Weekly history with navigation */}
+        <WeeklyHistory
+          sessions={sessions}
+          timezone={tz}
+          weekOffset={weekOffset}
+          onWeekChange={setWeekOffset}
+          goalMinutes={child?.daily_goal_minutes ?? 20}
+        />
 
         {/* Pending approvals */}
         {pending.length > 0 && (

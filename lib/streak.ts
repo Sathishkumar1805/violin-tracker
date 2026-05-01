@@ -81,3 +81,45 @@ export function getPracticedMinutesThisMonth(sessions: PracticeSession[], timezo
     .reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
   return Math.floor(secs / 60);
 }
+
+export interface DayDetail {
+  date: string;      // YYYY-MM-DD
+  dayLabel: string;  // Mon, Tue, …
+  dayDate: string;   // Apr 28
+  minutes: number;
+  isToday: boolean;
+  isFuture: boolean;
+}
+
+/**
+ * Returns per-day practice minutes for the Mon–Sun week at `weekOffset` from the current week.
+ * weekOffset 0 = this week, -1 = last week, -2 = two weeks ago, etc.
+ */
+export function getWeekDetails(sessions: PracticeSession[], timezone: string, weekOffset = 0): DayDetail[] {
+  const secsByDate = new Map<string, number>();
+  sessions
+    .filter(s => s.ended_at !== null)
+    .forEach(s => {
+      const d = toLocalDate(new Date(s.started_at), timezone);
+      secsByDate.set(d, (secsByDate.get(d) ?? 0) + (s.duration_seconds ?? 0));
+    });
+
+  const today = new Date();
+  const todayStr = toLocalDate(today, timezone);
+  const dow = today.getDay(); // 0 = Sun
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() + mondayOffset + i + weekOffset * 7);
+    const dateStr = toLocalDate(d, timezone);
+    return {
+      date: dateStr,
+      dayLabel: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i],
+      dayDate: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: timezone }),
+      minutes: Math.floor((secsByDate.get(dateStr) ?? 0) / 60),
+      isToday: dateStr === todayStr,
+      isFuture: dateStr > todayStr,
+    };
+  });
+}
