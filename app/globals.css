@@ -16,6 +16,10 @@
   .animate-pop {
     animation: star-pop 0.5s ease forwards;
   }
+  /* Mascot worried wobble */
+  .animate-mascot-wobble {
+    animation: mascot-wobble 0.8s ease-in-out infinite;
+  }
 }
 
 @keyframes flame-wobble {
@@ -32,6 +36,14 @@
   0%   { transform: scale(1); }
   55%  { transform: scale(1.6); }
   100% { transform: scale(1); }
+}
+
+@keyframes mascot-wobble {
+  0%, 100% { transform: rotate(0deg);   }
+  20%       { transform: rotate(-10deg); }
+  40%       { transform: rotate(10deg);  }
+  60%       { transform: rotate(-7deg);  }
+  80%       { transform: rotate(7deg);   }
 }
 
 /* iOS: prevent overscroll bounce which looks wrong in PWA mode */

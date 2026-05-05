@@ -13,6 +13,8 @@ import ViolinProgress from '@/components/ViolinProgress';
 import Timer          from '@/components/Timer';
 import ChallengesTab  from '@/components/ChallengesTab';
 import RewardStore    from '@/components/RewardStore';
+import Mascot, { getMascotMood, type MascotType } from '@/components/Mascot';
+import MascotPicker   from '@/components/MascotPicker';
 
 type Tab = 'practice' | 'challenges' | 'rewards';
 
@@ -27,6 +29,7 @@ export default function DashboardClient() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [activeTab,    setActiveTab]    = useState<Tab>('practice');
   const [loading,      setLoading]      = useState(true);
+  const [mascotType,   setMascotType]   = useState<MascotType>('bird');
 
   const loadData = useCallback(async () => {
     if (isMock) {
@@ -49,6 +52,16 @@ export default function DashboardClient() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useEffect(() => {
+    const saved = localStorage.getItem('violin-mascot') as MascotType | null;
+    if (saved) setMascotType(saved);
+  }, []);
+
+  function handleMascotChange(type: MascotType) {
+    setMascotType(type);
+    localStorage.setItem('violin-mascot', type);
+  }
+
   const tz           = profile?.timezone ?? 'America/Chicago';
   const streak       = calculateStreak(sessions, tz);
   const weekStatus   = getWeekPracticeStatus(sessions, tz);
@@ -56,6 +69,7 @@ export default function DashboardClient() {
   const goalMinutes  = profile?.daily_goal_minutes ?? 20;
   const monthMinutes = getPracticedMinutesThisMonth(sessions, tz);
   const challenges   = evaluateChallenges(sessions, achievements, tz);
+  const mascotMood   = getMascotMood(minutesToday, goalMinutes, streak, sessions.length > 0);
 
   function handleSessionComplete(session: PracticeSession, gemsEarned: number) {
     setSessions(prev => [session, ...prev]);
@@ -120,6 +134,8 @@ export default function DashboardClient() {
 
         {activeTab === 'practice' && (
           <>
+            <Mascot mascotType={mascotType} mood={mascotMood} streak={streak} />
+            <MascotPicker current={mascotType} onChange={handleMascotChange} />
             <ViolinProgress minutesToday={minutesToday} goalMinutes={goalMinutes} />
             <Timer profile={profile} isMock={isMock} onSessionComplete={handleSessionComplete} />
           </>
