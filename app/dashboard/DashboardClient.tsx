@@ -32,6 +32,8 @@ export default function DashboardClient() {
   const [mascotType,   setMascotType]   = useState<MascotType>('bird');
   const [pushEnabled,  setPushEnabled]  = useState(false);
   const [pushLoading,  setPushLoading]  = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushError,    setPushError]    = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (isMock) {
@@ -65,9 +67,14 @@ export default function DashboardClient() {
     }
   }, [profile]);
 
-  // Phase 3: check push status on mount
+  // Phase 3: check push support and current status on mount
   useEffect(() => {
-    import('@/lib/push').then(({ checkPushStatus }) => checkPushStatus().then(setPushEnabled));
+    const hasVapid = !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    const hasBrowserSupport = 'serviceWorker' in navigator && 'PushManager' in window;
+    setPushSupported(hasVapid && hasBrowserSupport);
+    if (hasVapid && hasBrowserSupport) {
+      import('@/lib/push').then(({ checkPushStatus }) => checkPushStatus().then(setPushEnabled));
+    }
   }, []);
 
   async function handleMascotChange(type: MascotType) {
@@ -77,14 +84,19 @@ export default function DashboardClient() {
   }
 
   async function handleTogglePush() {
-    if (!profile) return;
+    if (!profile || !pushSupported) return;
     setPushLoading(true);
+    setPushError(null);
     const { subscribeToPush, unsubscribeFromPush } = await import('@/lib/push');
     if (pushEnabled) {
       await unsubscribeFromPush(profile.id);
       setPushEnabled(false);
     } else {
       const ok = await subscribeToPush(profile.id);
+      if (!ok) {
+        const blocked = Notification.permission === 'denied';
+        setPushError(blocked ? 'Notifications blocked — check browser settings' : 'Could not enable reminders');
+      }
       setPushEnabled(ok);
     }
     setPushLoading(false);
@@ -166,18 +178,25 @@ export default function DashboardClient() {
             <MascotPicker current={mascotType} onChange={handleMascotChange} />
 
             {/* Practice reminder toggle */}
-            <div className="flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-violet-100">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">{pushEnabled ? '🔔' : '🔕'}</span>
-                <div>
-                  <p className="text-xs font-black text-indigo-900">Practice reminders</p>
-                  <p className="text-[10px] text-indigo-400 font-medium">Daily nudge if you haven&apos;t practiced</p>
+            <div className="bg-white px-4 py-3 rounded-2xl border border-violet-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{pushEnabled ? '🔔' : '🔕'}</span>
+                  <div>
+                    <p className="text-xs font-black text-indigo-900">Practice reminders</p>
+                    <p className="text-[10px] text-indigo-400 font-medium">
+                      {!pushSupported ? 'Not available in this browser' : "Daily nudge if you haven't practiced"}
+                    </p>
+                  </div>
                 </div>
+                <button onClick={handleTogglePush} disabled={pushLoading || !pushSupported}
+                  className={`relative w-11 h-6 rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${pushEnabled ? 'bg-indigo-600' : 'bg-indigo-200'}`}>
+                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${pushEnabled ? 'left-6' : 'left-1'}`} />
+                </button>
               </div>
-              <button onClick={handleTogglePush} disabled={pushLoading}
-                className={`relative w-11 h-6 rounded-full transition-all duration-200 disabled:opacity-50 ${pushEnabled ? 'bg-indigo-600' : 'bg-indigo-200'}`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${pushEnabled ? 'left-6' : 'left-1'}`} />
-              </button>
+              {pushError && (
+                <p className="text-[10px] text-red-500 font-semibold mt-1.5">{pushError}</p>
+              )}
             </div>
 
             <ViolinProgress minutesToday={minutesToday} goalMinutes={goalMinutes} />
