@@ -115,6 +115,34 @@ export async function approveReward(rewardId: string): Promise<void> {
     .eq('id', rewardId);
 }
 
+export async function updateMascot(userId: string, mascotType: string): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  await sb.from('profiles').update({ mascot_type: mascotType }).eq('id', userId);
+}
+
+export async function savePushSubscription(userId: string, subscription: object): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  await sb.from('push_subscriptions')
+    .upsert({ user_id: userId, subscription }, { onConflict: 'user_id' });
+}
+
+export async function deletePushSubscription(userId: string): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  await sb.from('push_subscriptions').delete().eq('user_id', userId);
+}
+
+export async function updateReward(
+  rewardId: string,
+  updates: Partial<Pick<Reward, 'title' | 'description' | 'gem_cost' | 'emoji'>>,
+): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  await sb.from('rewards').update(updates).eq('id', rewardId);
+}
+
 // ── Achievements ──────────────────────────────────────────
 export async function getAchievements(userId: string): Promise<Achievement[]> {
   const sb = getSupabaseClient();

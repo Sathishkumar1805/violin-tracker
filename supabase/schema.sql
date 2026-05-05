@@ -95,6 +95,21 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION increment_gems TO authenticated;
 
+-- ── 8. Mascot & Push Notifications ───────────────────────────
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS mascot_type TEXT DEFAULT 'bird';
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id      UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  subscription JSONB NOT NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "push: own subscriptions"
+  ON push_subscriptions FOR ALL
+  USING (user_id = auth.uid());
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+
 -- ── First-time setup (run after inviting users) ─────────────
 -- UPDATE profiles SET role='parent' WHERE id='PARENT-UUID';
 -- UPDATE profiles SET parent_id='PARENT-UUID' WHERE id='STUDENT-UUID';

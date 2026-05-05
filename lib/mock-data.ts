@@ -18,6 +18,7 @@ export const MOCK_PROFILE: Profile = {
   daily_goal_minutes: 20,
   gems: 120,
   timezone: TZ,
+  mascot_type: null,
   created_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
 };
 
@@ -29,6 +30,7 @@ export const MOCK_PARENT_PROFILE: Profile = {
   daily_goal_minutes: 20,
   gems: 0,
   timezone: TZ,
+  mascot_type: null,
   created_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
 };
 

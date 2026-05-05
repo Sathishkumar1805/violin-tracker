@@ -13,6 +13,7 @@ export interface Profile {
   daily_goal_minutes: number;
   gems: number;
   timezone: string; // IANA timezone string, e.g. "America/Chicago"
+  mascot_type: string | null;  // student's chosen mascot animal
   created_at: string;
 }
 

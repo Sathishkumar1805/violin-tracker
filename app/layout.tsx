@@ -7,6 +7,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Nunito, Nunito_Sans } from 'next/font/google'
 import './globals.css'
+import ServiceWorkerRegister from '@/components/ServiceWorkerRegister'
 
 // Display font for headings and numbers
 const nunito = Nunito({
@@ -65,6 +66,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="font-sans bg-violet-50 text-gray-900 antialiased">
+        <ServiceWorkerRegister />
         {children}
       </body>
     </html>
