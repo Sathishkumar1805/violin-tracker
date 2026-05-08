@@ -6,7 +6,7 @@ import { LogOut } from 'lucide-react';
 import { IS_MOCK, getSupabaseClient, getProfile, getSessions, getRewards, getAchievements, updateMascot } from '@/lib/supabase';
 import { MOCK_PROFILE, MOCK_SESSIONS, MOCK_REWARDS, MOCK_ACHIEVEMENTS } from '@/lib/mock-data';
 import { calculateStreak, getWeekPracticeStatus, getPracticedMinutesToday, getPracticedMinutesThisMonth } from '@/lib/streak';
-import { evaluateChallenges } from '@/lib/challenges';
+import { evaluateChallenges, getNewlyCompleted } from '@/lib/challenges';
 import type { Profile, PracticeSession, Reward, Achievement } from '@/lib/types';
 import StreakBanner   from '@/components/StreakBanner';
 import ViolinProgress from '@/components/ViolinProgress';
@@ -112,8 +112,38 @@ export default function DashboardClient() {
   const mascotMood   = getMascotMood(minutesToday, goalMinutes, streak, sessions.length > 0);
 
   function handleSessionComplete(session: PracticeSession, gemsEarned: number) {
-    setSessions(prev => [session, ...prev]);
+    const updatedSessions = [session, ...sessions];
+    setSessions(updatedSessions);
     setProfile(prev => prev ? { ...prev, gems: prev.gems + gemsEarned } : prev);
+
+    if (!isMock && profile) {
+      // Only send streak + milestone notifications on the first completed session of the day
+      const todayLocal = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+      const isFirstToday = !sessions.some(
+        s => s.ended_at && new Date(s.started_at).toLocaleDateString('en-CA', { timeZone: tz }) === todayLocal,
+      );
+
+      if (isFirstToday) {
+        const newStreak = calculateStreak(updatedSessions, tz);
+        if (newStreak > 0) {
+          fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'streak', studentId: profile.id, streakDays: newStreak }),
+          }).catch(() => {});
+        }
+      }
+
+      // Milestone notifications for any newly completed challenges
+      const newChallenges = evaluateChallenges(updatedSessions, achievements, tz);
+      for (const c of getNewlyCompleted(newChallenges, achievements)) {
+        fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'milestone', studentId: profile.id, achievementName: c.title }),
+        }).catch(() => {});
+      }
+    }
   }
 
   function handleRewardRedeemed(rewardId: string) {

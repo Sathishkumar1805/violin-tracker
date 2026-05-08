@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.44.4",
+    "@types/web-push": "^3.6.4",
     "lucide-react": "^0.400.0",
     "next": "^16.2.4",
     "react": "^18",
-    "react-dom": "^18"
+    "react-dom": "^18",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^20",

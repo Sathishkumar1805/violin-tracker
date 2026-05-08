@@ -98,38 +98,89 @@ Visit **http://localhost:3000/login**, log in as Aradhiya → student dashboard.
 
 ---
 
-## 🔔 Push Notifications Setup (Optional)
+## 🔔 Push Notifications Setup
 
-Push notifications send a daily reminder if the student hasn't practiced yet. The reminder message is personalised to the student's chosen mascot animal.
+Notifications are sent to both **students** and **parents** for five events:
 
-### 1. Generate VAPID Keys
+| Event | Student gets | Parent gets |
+|---|---|---|
+| Morning reminder (7–9 am local) | "Time to practice!" | "Remind your child to practice today" |
+| Evening reminder (5–7 pm local) | Streak-aware nudge | Child's streak at risk / hasn't practiced |
+| Practice session complete | Duration + gems earned | Child's session summary |
+| Daily streak milestone | Streak count | Child's streak count |
+| Achievement unlocked | Badge name | Child's badge name |
+
+### Step 1 — Generate VAPID Keys (do this once)
 
 ```bash
 npx web-push generate-vapid-keys
 ```
 
-Copy the output — you'll need both keys.
+This prints two keys. Save them somewhere safe — if you regenerate them later all existing push subscriptions stop working.
 
-### 2. Add Environment Variables
+### Step 2 — Add Environment Variables
 
-**Vercel** (Project → Settings → Environment Variables):
-
-| Variable | Value |
-|---|---|
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | The public key from step 1 |
-
-**Supabase** (Dashboard → Edge Functions → Secrets):
+**Vercel** (Project → Settings → Environment Variables) — add all five:
 
 | Variable | Value |
 |---|---|
-| `VAPID_PUBLIC_KEY` | The public key from step 1 |
-| `VAPID_PRIVATE_KEY` | The private key from step 1 |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Public key from Step 1 |
+| `VAPID_PUBLIC_KEY` | Same public key (used server-side by `/api/notify`) |
+| `VAPID_PRIVATE_KEY` | Private key from Step 1 — keep secret |
 | `VAPID_SUBJECT` | `mailto:you@example.com` |
-| `CRON_SECRET` | Any random secret string |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API → `service_role` |
 
-### 3. Enable Notifications
+**Supabase Edge Function secrets** (Dashboard → Edge Functions → Secrets):
 
-In the student dashboard → **Practice tab** → toggle the 🔔 **Practice reminders** switch. The browser will ask for permission.
+| Variable | Value |
+|---|---|
+| `VAPID_PUBLIC_KEY` | Public key from Step 1 |
+| `VAPID_PRIVATE_KEY` | Private key from Step 1 |
+| `VAPID_SUBJECT` | `mailto:you@example.com` |
+| `CRON_SECRET` | Any random string — e.g. run `openssl rand -hex 32` |
+
+For local development, add the same five Vercel variables to `.env.local`.
+
+### Step 3 — Run the Notification Log SQL
+
+In Supabase → **SQL Editor → New query**, run:
+
+```sql
+CREATE TABLE IF NOT EXISTS notification_log (
+  user_id    UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  type       TEXT NOT NULL,
+  local_date TEXT NOT NULL,
+  sent_at    TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, type, local_date)
+);
+ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_notification_log_user ON notification_log(user_id, sent_at);
+```
+
+This prevents the hourly edge function from sending the same reminder twice in one day.
+
+### Step 4 — Deploy the Edge Function
+
+```bash
+supabase functions deploy send-reminders
+```
+
+### Step 5 — Set the Cron Schedule to Hourly
+
+In Supabase → **Edge Functions → send-reminders → Cron**, set the schedule to:
+
+```
+0 * * * *
+```
+
+This runs every hour. The function checks each user's **local time** and only sends when it falls inside the morning (7–9 am) or evening (5–7 pm) window.
+
+### Step 6 — Enable Notifications in the App
+
+- **Student**: dashboard → Practice tab → toggle 🔔 **Practice reminders** → allow when the browser asks
+- **Parent**: parent dashboard → toggle 🔔 **Practice notifications** → allow when the browser asks
+
+Both must enable notifications independently to receive them on their own device.
 
 ---
 

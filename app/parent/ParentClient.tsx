@@ -29,6 +29,11 @@ export default function ParentClient() {
   const [saving,   setSaving]   = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
 
+  const [pushEnabled,   setPushEnabled]   = useState(false);
+  const [pushLoading,   setPushLoading]   = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushError,     setPushError]     = useState<string | null>(null);
+
   // Reward editing
   const [editingRewardId, setEditingRewardId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -60,6 +65,34 @@ export default function ParentClient() {
   }, [isMock, router]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    const hasVapid = !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    const hasBrowserSupport = 'serviceWorker' in navigator && 'PushManager' in window;
+    setPushSupported(hasVapid && hasBrowserSupport);
+    if (hasVapid && hasBrowserSupport) {
+      import('@/lib/push').then(({ checkPushStatus }) => checkPushStatus().then(setPushEnabled));
+    }
+  }, []);
+
+  async function handleTogglePush() {
+    if (!parent || !pushSupported) return;
+    setPushLoading(true);
+    setPushError(null);
+    const { subscribeToPush, unsubscribeFromPush } = await import('@/lib/push');
+    if (pushEnabled) {
+      await unsubscribeFromPush(parent.id);
+      setPushEnabled(false);
+    } else {
+      const ok = await subscribeToPush(parent.id);
+      if (!ok) {
+        const blocked = Notification.permission === 'denied';
+        setPushError(blocked ? 'Notifications blocked — check browser settings' : 'Could not enable notifications');
+      }
+      setPushEnabled(ok);
+    }
+    setPushLoading(false);
+  }
 
   async function handleApprove(id: string) {
     if (!isMock) await approveReward(id);
@@ -143,6 +176,26 @@ export default function ParentClient() {
               <p className="text-xs text-indigo-400 font-semibold">{s.label}</p>
             </div>
           ))}
+        </div>
+
+        {/* Push notification toggle */}
+        <div className="bg-white px-4 py-3 rounded-2xl border border-violet-100">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{pushEnabled ? '🔔' : '🔕'}</span>
+              <div>
+                <p className="text-xs font-black text-indigo-900">Practice notifications</p>
+                <p className="text-[10px] text-indigo-400 font-medium">
+                  {!pushSupported ? 'Not available in this browser' : "Get notified when your child practices"}
+                </p>
+              </div>
+            </div>
+            <button onClick={handleTogglePush} disabled={pushLoading || !pushSupported}
+              className={`relative w-11 h-6 rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${pushEnabled ? 'bg-indigo-600' : 'bg-indigo-200'}`}>
+              <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${pushEnabled ? 'left-6' : 'left-1'}`} />
+            </button>
+          </div>
+          {pushError && <p className="text-[10px] text-red-500 font-semibold mt-1.5">{pushError}</p>}
         </div>
 
         {/* Weekly history with navigation */}
