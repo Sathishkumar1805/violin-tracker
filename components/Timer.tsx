@@ -1,208 +1,266 @@
 'use client';
 
-// components/Timer.tsx
-// Start/stop practice timer with:
-//   • localStorage persistence (survives page refresh)
-//   • Web Audio API "ding" fanfare on session end
-//   • Confetti explosion
-//   • Gem award calculation
-'use client';
+// components/Timer.tsx — Practice session timer
+//
+// This component displays a large MM:SS clock the student taps to start
+// and stop their practice session. When stopped it:
+//   • Saves the session to the database
+//   • Awards gems based on how long they practiced
+//   • Plays a four-note fanfare sound
+//   • Launches a confetti animation
+//   • Sends a push notification to the student and their parent
+//
+// The timer survives a page refresh by storing the start time in
+// localStorage. If the student accidentally closes the tab, they can
+// come back and the session will still be running.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Square } from 'lucide-react';
 import { saveSession, updateGems } from '@/lib/supabase';
 import type { Profile, PracticeSession } from '@/lib/types';
 
-const LS_KEY = 'violin-tracker-session-start';
-const GEMS_PER_MINUTE = 5; // tune this in the README customisation section
+// Key used to persist the session start time across page refreshes
+const SESSION_START_KEY = 'violin-tracker-session-start';
 
+// How many gems the student earns per minute of practice (tune this to adjust difficulty)
+const GEMS_PER_MINUTE = 5;
+
+// ── Props ────────────────────────────────────────────────────────────────────
 interface Props {
-  profile: Profile;
-  isMock: boolean;
-  onSessionComplete: (session: PracticeSession, gemsEarned: number) => void;
+  profile:           Profile;
+  isMock:            boolean;                                              // true = no database, demo mode
+  onSessionComplete: (session: PracticeSession, gemsEarned: number) => void; // callback to update parent state
 }
 
-// ── Sound: four rising sine tones (C5 E5 G5 C6) ──────────
-function playDing() {
+// ── Fanfare sound ─────────────────────────────────────────────────────────────
+// Plays four rising sine-wave tones (C5 → E5 → G5 → C6) using the Web Audio API.
+// The tones are generated in real time — no audio file needed.
+// If the browser blocks AudioContext (e.g. before a user interaction), we silently skip.
+function playFanfare() {
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
-      const osc  = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = ctx.currentTime + i * 0.18;
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.22, t + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
-      osc.start(t);
-      osc.stop(t + 0.8);
+    const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+
+    // Each frequency plays 180 ms after the previous one, creating a rising arpeggio
+    const noteFrequencies = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    noteFrequencies.forEach((frequency, index) => {
+      const oscillator = audioCtx.createOscillator();
+      const gainNode   = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.type            = 'sine';
+      oscillator.frequency.value = frequency;
+
+      // Schedule this note to start after (index × 180 ms) from now
+      const startTime = audioCtx.currentTime + index * 0.18;
+      gainNode.gain.setValueAtTime(0, startTime);                     // silent at start
+      gainNode.gain.linearRampToValueAtTime(0.22, startTime + 0.03); // quick fade in
+      gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.8); // slow fade out
+
+      oscillator.start(startTime);
+      oscillator.stop(startTime + 0.8);
     });
-  } catch { /* AudioContext blocked — silently skip */ }
+  } catch {
+    // AudioContext can be blocked in some browsers — silently skip the sound effect
+  }
 }
 
-// ── Confetti: 60 coloured squares raining from the top ───
+// ── Confetti explosion ────────────────────────────────────────────────────────
+// Creates 60 coloured squares that rain down from the top of the screen.
+// Each square is a temporary DOM element appended to #confetti-container
+// (defined in the JSX below) and removed after the animation completes.
 function launchConfetti() {
   const container = document.getElementById('confetti-container');
   if (!container) return;
-  const colours = ['#5B4FCF', '#F5A623', '#22C981', '#F0506E', '#9B59F5', '#FCD34D', '#38BDF8'];
+
+  const confettiColors = ['#5B4FCF', '#F5A623', '#22C981', '#F0506E', '#9B59F5', '#FCD34D', '#38BDF8'];
+
   for (let i = 0; i < 60; i++) {
-    const el = document.createElement('div');
-    const size = 6 + Math.random() * 8;
-    el.style.cssText = [
+    const piece = document.createElement('div');
+    const size  = 6 + Math.random() * 8; // random size between 6 px and 14 px
+
+    piece.style.cssText = [
       `position:fixed`,
-      `left:${10 + Math.random() * 80}%`,
-      `top:${Math.random() * 15}%`,
+      `left:${10 + Math.random() * 80}%`,                                       // random horizontal position
+      `top:${Math.random() * 15}%`,                                              // start near the top
       `width:${size}px`,
       `height:${size}px`,
-      `background:${colours[Math.floor(Math.random() * colours.length)]}`,
+      `background:${confettiColors[Math.floor(Math.random() * confettiColors.length)]}`,
       `border-radius:2px`,
       `transform:rotate(${Math.random() * 360}deg)`,
-      `animation:confetti-fall ${1.6 + Math.random() * 0.8}s ease-in forwards`,
+      `animation:confetti-fall ${1.6 + Math.random() * 0.8}s ease-in forwards`, // 1.6–2.4 s fall duration
       `animation-delay:${Math.random() * 0.6}s`,
       `z-index:9999`,
-      `pointer-events:none`,
+      `pointer-events:none`, // pieces should not block clicks on the UI beneath
     ].join(';');
-    container.appendChild(el);
-    setTimeout(() => el.remove(), 3500);
+
+    container.appendChild(piece);
+    setTimeout(() => piece.remove(), 3500); // clean up after animation ends
   }
 }
 
+// ── Timer component ───────────────────────────────────────────────────────────
 export default function Timer({ profile, isMock, onSessionComplete }: Props) {
-  const [running, setRunning]   = useState(false);
-  const [elapsed, setElapsed]   = useState(0);          // seconds
-  const [startTime, setStartTime] = useState<Date | null>(null);
-  const [msg, setMsg]           = useState('Tap to start today\'s session');
-  const intervalRef             = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isRunning,  setIsRunning]  = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);           // total seconds since the session started
+  const [sessionStart, setSessionStart] = useState<Date | null>(null);
+  const [statusMessage, setStatusMessage] = useState("Tap to start today's session");
+  const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Restore a session that survived a page refresh ──────
+  // ── Restore a session that survived a page refresh ────────────────────────
+  // If the student refreshed or accidentally closed the tab while practicing,
+  // we pick up from where they left off using the start time in localStorage.
   useEffect(() => {
-    const stored = localStorage.getItem(LS_KEY);
-    if (!stored) return;
-    const t = new Date(stored);
-    const secs = Math.floor((Date.now() - t.getTime()) / 1000);
-    if (secs > 0 && secs < 7_200) {   // cap at 2 hrs to guard against stale data
-      setStartTime(t);
-      setElapsed(secs);
-      setRunning(true);
-      setMsg('Session in progress — keep playing! 🎶');
+    const storedStartTime = localStorage.getItem(SESSION_START_KEY);
+    if (!storedStartTime) return;
+
+    const restoredStart  = new Date(storedStartTime);
+    const secondsElapsed = Math.floor((Date.now() - restoredStart.getTime()) / 1000);
+
+    // Ignore stale data older than 2 hours — the student probably forgot to stop the timer
+    if (secondsElapsed > 0 && secondsElapsed < 7_200) {
+      setSessionStart(restoredStart);
+      setElapsedSec(secondsElapsed);
+      setIsRunning(true);
+      setStatusMessage('Session in progress — keep playing! 🎶');
     } else {
-      localStorage.removeItem(LS_KEY);
+      localStorage.removeItem(SESSION_START_KEY);
     }
   }, []);
 
-  // ── Tick every second when running ──────────────────────
+  // ── Tick every second while the timer is running ──────────────────────────
+  // We recalculate elapsed time from the stored start rather than incrementing
+  // a counter, so the clock stays accurate even if the tab is backgrounded.
   useEffect(() => {
-    if (running && startTime) {
-      intervalRef.current = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - startTime.getTime()) / 1000));
+    if (isRunning && sessionStart) {
+      tickIntervalRef.current = setInterval(() => {
+        setElapsedSec(Math.floor((Date.now() - sessionStart.getTime()) / 1000));
       }, 1_000);
     } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
     }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [running, startTime]);
+    return () => {
+      if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
+    };
+  }, [isRunning, sessionStart]);
 
-  function fmt(s: number) {
-    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  // Format seconds as MM:SS for the large timer display
+  function formatTime(totalSeconds: number): string {
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
   }
 
-  function start() {
+  // ── Start the session ─────────────────────────────────────────────────────
+  function startSession() {
     const now = new Date();
-    localStorage.setItem(LS_KEY, now.toISOString());
-    setStartTime(now);
-    setElapsed(0);
-    setRunning(true);
-    setMsg('Session in progress — keep playing! 🎶');
+    // Persist the start time so we can restore it after a page refresh
+    localStorage.setItem(SESSION_START_KEY, now.toISOString());
+    setSessionStart(now);
+    setElapsedSec(0);
+    setIsRunning(true);
+    setStatusMessage('Session in progress — keep playing! 🎶');
   }
 
-  const stop = useCallback(async () => {
-    if (!startTime) return;
-    setRunning(false);
-    localStorage.removeItem(LS_KEY);
+  // ── Stop and save the session ─────────────────────────────────────────────
+  // Called when the student taps "Stop & Save". Saves to the database,
+  // awards gems, plays the fanfare, fires confetti, and triggers push notifications.
+  const stopSession = useCallback(async () => {
+    if (!sessionStart) return;
 
-    const endTime = new Date();
-    const durSecs = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+    setIsRunning(false);
+    localStorage.removeItem(SESSION_START_KEY); // clear the persisted start time
 
-    // Ignore accidental taps < 10 s
-    if (durSecs < 10) {
-      setMsg('Too short — give it another go! 😊');
-      setElapsed(0);
-      setStartTime(null);
+    const endTime        = new Date();
+    const durationSecs   = Math.floor((endTime.getTime() - sessionStart.getTime()) / 1000);
+
+    // Ignore accidental taps — a session under 10 seconds doesn't count
+    if (durationSecs < 10) {
+      setStatusMessage('Too short — give it another go! 😊');
+      setElapsedSec(0);
+      setSessionStart(null);
       return;
     }
 
-    const gems = Math.max(1, Math.floor((durSecs / 60) * GEMS_PER_MINUTE));
+    // Award at least 1 gem even for very short sessions
+    const gemsEarned = Math.max(1, Math.floor((durationSecs / 60) * GEMS_PER_MINUTE));
 
-    const session: PracticeSession = {
-      id: `tmp-${Date.now()}`,
-      user_id: profile.id,
-      started_at: startTime.toISOString(),
-      ended_at: endTime.toISOString(),
-      duration_seconds: durSecs,
-      notes: null,
-      created_at: startTime.toISOString(),
+    // Build a session object with a temporary local ID (replaced by the DB-assigned ID below)
+    const completedSession: PracticeSession = {
+      id:               `tmp-${Date.now()}`,
+      user_id:          profile.id,
+      started_at:       sessionStart.toISOString(),
+      ended_at:         endTime.toISOString(),
+      duration_seconds: durationSecs,
+      notes:            null,
+      created_at:       sessionStart.toISOString(),
     };
 
     if (!isMock) {
-      const saved = await saveSession({
-        user_id: profile.id,
-        started_at: startTime.toISOString(),
-        ended_at: endTime.toISOString(),
-        duration_seconds: durSecs,
-        notes: null,
+      // Save the session record to the database
+      const savedSession = await saveSession({
+        user_id:          profile.id,
+        started_at:       sessionStart.toISOString(),
+        ended_at:         endTime.toISOString(),
+        duration_seconds: durationSecs,
+        notes:            null,
       });
-      if (saved) session.id = saved.id;
-      await updateGems(profile.id, profile.gems + gems);
+      // Use the server-assigned UUID if the save succeeded
+      if (savedSession) completedSession.id = savedSession.id;
 
-      // Fire-and-forget: notify student + parent of completed session
+      // Update the gem balance in the database
+      await updateGems(profile.id, profile.gems + gemsEarned);
+
+      // Send "practice complete" push notification to the student and their parent.
+      // fire-and-forget: we don't await this because a push failure shouldn't block the UI.
       fetch('/api/notify', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'practice-complete',
-          studentId: profile.id,
-          durationMinutes: Math.round(durSecs / 60),
-          gemsEarned: gems,
+          type:            'practice-complete',
+          studentId:       profile.id,
+          durationMinutes: Math.round(durationSecs / 60),
+          gemsEarned,
         }),
-      }).catch(() => {});
+      }).catch(() => {}); // silently ignore network errors
     }
 
-    playDing();
+    playFanfare();
     launchConfetti();
-    setMsg(`Well played! +${gems} gems earned ✨`);
-    onSessionComplete(session, gems);
-    setElapsed(0);
-    setStartTime(null);
-  }, [startTime, profile, isMock, onSessionComplete]);
+    setStatusMessage(`Well played! +${gemsEarned} gems earned ✨`);
+    onSessionComplete(completedSession, gemsEarned);
+    setElapsedSec(0);
+    setSessionStart(null);
+  }, [sessionStart, profile, isMock, onSessionComplete]);
 
-  const mins = Math.floor(elapsed / 60);
+  const minutesElapsed = Math.floor(elapsedSec / 60);
 
   return (
     <>
-      {/* Portal target for confetti pieces (fixed-position so it overlays everything) */}
+      {/* Invisible overlay used as the mount point for confetti pieces.
+          Fixed position so the pieces float above all other UI. */}
       <div id="confetti-container" className="fixed inset-0 pointer-events-none z-50 overflow-hidden" />
 
       <div className="bg-white rounded-3xl p-5 border border-violet-100 shadow-sm text-center">
-        {/* Big timer */}
+        {/* Large MM:SS clock — turns indigo while the session is running */}
         <div
-          className={`text-6xl font-black mb-1 tabular-nums transition-colors ${running ? 'text-indigo-600' : 'text-indigo-900'}`}
+          className={`text-6xl font-black mb-1 tabular-nums transition-colors ${isRunning ? 'text-indigo-600' : 'text-indigo-900'}`}
           style={{ fontFamily: 'Nunito, sans-serif', letterSpacing: '-3px' }}
         >
-          {fmt(elapsed)}
+          {formatTime(elapsedSec)}
         </div>
 
-        {/* Sub-message */}
+        {/* Status message below the clock */}
         <p className="text-xs font-semibold text-indigo-400 mb-5 min-h-[18px]">
-          {running && mins > 0 ? `${mins} minute${mins !== 1 ? 's' : ''} in — amazing! 🎶` : msg}
+          {isRunning && minutesElapsed > 0
+            ? `${minutesElapsed} minute${minutesElapsed !== 1 ? 's' : ''} in — amazing! 🎶`
+            : statusMessage}
         </p>
 
-        {/* CTA button */}
-        {!running ? (
+        {/* Start / Stop button — switches between the two states */}
+        {!isRunning ? (
           <button
-            onClick={start}
+            onClick={startSession}
             className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-2xl font-black text-lg shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2"
             style={{ fontFamily: 'Nunito, sans-serif' }}
           >
@@ -211,7 +269,7 @@ export default function Timer({ profile, isMock, onSessionComplete }: Props) {
           </button>
         ) : (
           <button
-            onClick={stop}
+            onClick={stopSession}
             className="w-full py-4 bg-white border-2 border-rose-400 hover:bg-rose-50 active:scale-95 text-rose-500 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-2"
             style={{ fontFamily: 'Nunito, sans-serif' }}
           >
@@ -225,11 +283,11 @@ export default function Timer({ profile, isMock, onSessionComplete }: Props) {
         </p>
       </div>
 
-      {/* Confetti keyframes (injected once into the document) */}
+      {/* Confetti keyframes — injected into the document once alongside the component */}
       <style>{`
         @keyframes confetti-fall {
-          0%   { opacity:1; transform: translateY(0)    rotate(0deg); }
-          100% { opacity:0; transform: translateY(650px) rotate(720deg); }
+          0%   { opacity: 1; transform: translateY(0)     rotate(0deg);   }
+          100% { opacity: 0; transform: translateY(650px)  rotate(720deg); }
         }
       `}</style>
     </>
