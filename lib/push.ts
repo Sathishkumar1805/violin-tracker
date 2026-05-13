@@ -18,13 +18,15 @@
 // ─── Internal helper ─────────────────────────────────────────────────────────
 // Converts the VAPID public key from URL-safe base64 text (the format used in
 // .env files) to raw bytes (the format the browser's PushManager API requires).
-function convertVapidKeyToBytes(base64UrlString: string): Uint8Array {
+function convertVapidKeyToBytes(base64UrlString: string): Uint8Array<ArrayBuffer> {
   // Base64 strings must be a multiple of 4 chars; pad with '=' if necessary
   const padding   = '='.repeat((4 - (base64UrlString.length % 4)) % 4);
   // URL-safe base64 uses '-' and '_'; standard base64 uses '+' and '/'
   const base64    = (base64UrlString + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawBytes  = atob(base64); // decode base64 → binary string
-  return new Uint8Array([...rawBytes].map(char => char.charCodeAt(0)));
+  const bytes     = new Uint8Array(rawBytes.length);
+  for (let i = 0; i < rawBytes.length; i++) bytes[i] = rawBytes.charCodeAt(i);
+  return bytes;
 }
 
 // ─── checkPushStatus ─────────────────────────────────────────────────────────
