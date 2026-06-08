@@ -108,25 +108,29 @@ async function hasNotBeenSentToday(
 
 
 // ─── Send push and clean up stale subscriptions ───────────────────────────────
-// Sends a push notification to the given subscription.
+// Sends a push notification to the given device (identified by endpoint + keys).
 // If the push service says the subscription is expired or gone (410 or 404),
 // the stale record is removed from the database automatically.
 // Returns true if the notification was delivered successfully.
 async function sendPushAndHandleErrors(
-  supabase:     ReturnType<typeof createClient>,
-  subscription: object,
-  userId:       string,
-  payload:      object,
+  supabase: ReturnType<typeof createClient>,
+  endpoint: string,
+  p256dh:   string,
+  auth:     string,
+  payload:  object,
 ): Promise<boolean> {
   try {
-    await webpush.sendNotification(subscription, JSON.stringify(payload));
+    await webpush.sendNotification(
+      { endpoint, keys: { p256dh, auth } },
+      JSON.stringify(payload),
+    );
     return true;
   } catch (error) {
     const httpStatus = (error as { statusCode?: number }).statusCode;
     // 410 = subscription expired; 404 = subscription endpoint no longer exists
     // Both mean the device can no longer receive push — safe to delete
     if (httpStatus === 410 || httpStatus === 404) {
-      await supabase.from('push_subscriptions').delete().eq('user_id', userId);
+      await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
     }
     return false;
   }
@@ -163,7 +167,8 @@ Deno.serve(async (request) => {
 
   const { data: subscriptions, error: subscriptionError } = await supabase
     .from('push_subscriptions')
-    .select('user_id, subscription, profiles(id, display_name, role, timezone, mascot_type, parent_id)');
+    .select('user_id, endpoint, p256dh, auth, profiles(id, display_name, role, timezone, mascot_type, parent_id)')
+    .eq('active', true);
 
   if (subscriptionError || !subscriptions?.length) {
     return new Response(
@@ -271,8 +276,9 @@ Deno.serve(async (request) => {
 
       const wasDelivered = await sendPushAndHandleErrors(
         supabase,
-        sub.subscription,
-        sub.user_id,
+        sub.endpoint,
+        sub.p256dh,
+        sub.auth,
         { title: notificationTitle, body: notificationBody, type: `reminder_${timeWindowLabel}`, url: '/dashboard' },
       );
       if (wasDelivered) sentCount++;
@@ -313,8 +319,9 @@ Deno.serve(async (request) => {
 
         const wasDelivered = await sendPushAndHandleErrors(
           supabase,
-          sub.subscription,
-          sub.user_id,
+          sub.endpoint,
+          sub.p256dh,
+          sub.auth,
           { title: notificationTitle, body: notificationBody, type: `reminder_${timeWindowLabel}_parent`, url: '/parent' },
         );
         if (wasDelivered) sentCount++;

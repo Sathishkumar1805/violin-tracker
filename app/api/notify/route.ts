@@ -182,12 +182,13 @@ export async function POST(request: NextRequest) {
   ];
 
   // ── Load push subscriptions for all recipients ────────────────────────────
-  // Each row contains the unique push endpoint URL and encryption keys
+  // Each row contains the endpoint URL and encryption keys (p256dh + auth)
   // the server needs to deliver a notification to that device.
   const { data: pushSubscriptions } = await supabase
     .from('push_subscriptions')
-    .select('user_id, subscription')
-    .in('user_id', recipientUserIds);
+    .select('user_id, endpoint, p256dh, auth')
+    .in('user_id', recipientUserIds)
+    .eq('active', true);
 
   // If nobody has enabled push notifications, there's nothing to send
   if (!pushSubscriptions?.length) return NextResponse.json({ sent: 0 });
@@ -215,7 +216,7 @@ export async function POST(request: NextRequest) {
 
     try {
       await webpush.sendNotification(
-        recipientSub.subscription as webpush.PushSubscription,
+        { endpoint: recipientSub.endpoint, keys: { p256dh: recipientSub.p256dh, auth: recipientSub.auth } },
         // The service worker receives this JSON string and uses it to show the banner
         JSON.stringify({ ...messageContent, type: notificationType, url: destinationUrl }),
       );
@@ -225,7 +226,7 @@ export async function POST(request: NextRequest) {
       // In both cases, remove the stale record so we don't waste time on it again.
       const httpStatus = (error as { statusCode?: number }).statusCode;
       if (httpStatus === 410 || httpStatus === 404) {
-        await supabase.from('push_subscriptions').delete().eq('user_id', recipientSub.user_id);
+        await supabase.from('push_subscriptions').delete().eq('endpoint', recipientSub.endpoint);
       }
     }
   }
